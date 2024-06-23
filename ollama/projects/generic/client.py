@@ -4,7 +4,7 @@ import requests
 model = "llama3"
 streamResponse = True
 endpoint = "http://localhost:11434"
-systemPrompt = "Only use the information about Albert Einstein and do not use anything else"
+systemPrompt = "You are a fast and helpful word predictor, given a sentence with the last word partially completed you should give rest of the letters of the word that would grammatically complete the word in lowercase and no other characters"
 
 def generate(prompt):
     payload = {
