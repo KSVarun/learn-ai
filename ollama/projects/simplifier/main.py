@@ -46,7 +46,7 @@ def createJiraTaskFromLocalCSVFile(csvPath:str):
     df = pd.read_csv(csvPath)
     created_jira = []
     for index, row in df.iterrows():
-        if pd.notna(row['summary']) & pd.isna(row['jira']):
+        if pd.notna(row['summary']) and pd.isna(row['jira']):
             fields = {'project':{'key':'AN30'},'issuetype': {'name': 'Task'},'summary': row['summary'], 'description':row['description'], 'assignee':{'id':row['assignee']}}
 
             # jira_issue_response will contain {'id': '2784859', 'key': 'AN30-6067', 'self': 'link to the json response'}
@@ -61,7 +61,7 @@ def createJiraTaskFromLocalCSVFile(csvPath:str):
 store = {}
 
 def get_valid_functions():
-    return []
+    return ['createJiraTaskFromLocalCSVFile']
 
 def get_session_history(session_id: str) -> BaseChatMessageHistory:
     if session_id not in store:
@@ -115,7 +115,12 @@ def updateSessionHistory(session_id: str, message:str):
     if session_id in store:
         get_session_history(session_id).add_message(SystemMessage(message))
 
-updateSessionHistory('new')
+def validate_if_function_returned_is_valid(function:str):
+    function_name=function.split('(')[0]
+    valid_functions=get_valid_functions()
+    if function_name in valid_functions:
+        return True
+    return False
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -130,21 +135,26 @@ async def websocket_endpoint(websocket: WebSocket):
                 config={"configurable": {"session_id": session_id}},
             )
         # add logic to verify if the function returned by LLM is expected
-        if(len(res)>2):
-            try:
-                created_jiras = eval(res)
-                if len(created_jiras)>1:
-                    system_message_for_llm = 'We have created the following jira'
-                    for jiras in created_jiras:
-                        system_message_for_llm = system_message_for_llm + f'\n-${jiras['title']}: https://amagiengg.atlassian.net/browse/${jiras['key']}'
-                    updateSessionHistory(session_id, system_message_for_llm)
+        res = response.content.strip()
+        is_valid_function = validate_if_function_returned_is_valid(res)
+    
+        if len(res)>2 and is_valid_function:
+            print(f"is valid{res}")
+            # try:
+            #     created_jiras = eval(res)
+            #     if len(created_jiras)>1:
+            #         system_message_for_llm = 'We have created the following jira'
+            #         for jiras in created_jiras:
+            #             system_message_for_llm = system_message_for_llm + f'\n-${jiras['title']}: https://amagiengg.atlassian.net/browse/${jiras['key']}'
+            #         updateSessionHistory(session_id, system_message_for_llm)
 
-            except Exception as e:
-                print(f"Error: {e}")
+            # except Exception as e:
+            #     print(f"Error: {e}")
+
+            # await websocket.send_json({
+            #     "time":time, "content":res
+            # })
         else:
             print("Unexpected response:", res)
-        res = response.content.strip()
-        await websocket.send_json({
-                "time":time, "content":res
-            })
+        
         
