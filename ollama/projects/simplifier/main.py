@@ -14,7 +14,9 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.messages import HumanMessage
 import datetime
 from langchain_core.messages import SystemMessage
-
+import requests
+from io import StringIO
+import re
 
 load_dotenv()
 
@@ -22,7 +24,6 @@ model="llama3.1:8b-instruct-q8_0"
 llm = ChatOllama(model=model, temperature=0)
 
 app = FastAPI()
-
 
 # @app.get("/")
 # async def root():
@@ -32,36 +33,84 @@ app = FastAPI()
 # async def get():
 #     return HTMLResponse(html)
 
+#TODO: should login to jira on application start, if session ends should relogin
 
-# try:
-#     jira = Jira(
-#     url=os.getenv("url"),
-#     username=os.getenv("username"),
-#     password=os.getenv("password"),
-#     cloud=True)
-# except Exception as e:
-#     print(f"Unable to login to jira, Error: {e}")
+try:
+    jira = Jira(
+    url=os.getenv("url"),
+    username=os.getenv("username"),
+    password=os.getenv("password"),
+    cloud=True)
+except Exception as e:
+    print(f"Unable to login to jira, Error: {e}")
 
-def createJiraTaskFromLocalCSVFile(csvPath:str):
-    df = pd.read_csv(csvPath)
+def create_jira(fields, row):
+    # jira_issue_response will contain {'id': '2784859', 'key': 'AN30-6067', 'self': 'link to the json response'}
+    jira_issue_response=jira.issue_create(fields)
+    updated_jira_issue_response=jira_issue_response
+    updated_jira_issue_response['title']=row['summary']
+    print('in create_jira', updated_jira_issue_response)
+    return updated_jira_issue_response
+
+def process_google_sheet_endpoint(endpoint: str):
+    print(endpoint)
+    #Can you read the csv from https://docs.google.com/spreadsheets/d/1mPO6-Ta-3t3ECROxzebG9DwiDe7Ran5quHeuVa0/edit?gid=0#gid=0 and create jira for each items
+    google_sheet_endpoint_pattern = r"https://docs.google.com/spreadsheets/d/([a-zA-Z0-9-_]+).*?gid=([0-9]+)"
+    match = re.search(google_sheet_endpoint_pattern, endpoint)
+
+    if match:
+        sheet_id = match.group(1)
+        gid = match.group(2)
+        if gid:
+            return f'https://docs.google.com/spreadsheets/d/{sheet_id}/export?gid={gid}&format=csv'
+        return f'https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv'
+        
+    else:
+        print("URL format is not recognized.")
+
+def create_jira_task_from_endpoint(endpoint:str):
+    processed_end_point = process_google_sheet_endpoint(endpoint)
+    print('in create_jira-task_from_endpoint, processed_end_point', processed_end_point)
+    response = requests.get(processed_end_point)
+    csv_data = StringIO(response.content.decode('utf-8'))
+    df = pd.read_csv(csv_data)
+    
+    print('in create_jira-task_from_endpoint', df)
     created_jira = []
-    for index, row in df.iterrows():
-        if pd.notna(row['summary']) and pd.isna(row['jira']):
-            fields = {'project':{'key':'AN30'},'issuetype': {'name': 'Task'},'summary': row['summary'], 'description':row['description'], 'assignee':{'id':row['assignee']}}
 
-            # jira_issue_response will contain {'id': '2784859', 'key': 'AN30-6067', 'self': 'link to the json response'}
-            # jira_issue_response=jira.issue_create(fields)
-            # updated_jira_issue_response=jira_issue_response
-            # updated_jira_issue_response['title']=row['summary']
-            # created_jira.append(updated_jira_issue_response)
-            # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
-    df.to_csv(csvPath, index=False)
+    #TODO: add validation to check if summary column is present or not, if not present update the ws message
+
+    for index, row in df.iterrows():
+        fields = {'project':{'key':'AN30'},'issuetype': {'name': 'Task'},'summary': row['summary'], 'description':row['description'], 'assignee':{'id':row['assignee']}}
+        try:
+            print('inside try of create_jira_task_from_endpoint')
+            if pd.notna(row['summary']) and pd.isna(row['jira']):
+                print('inside try if of create_jira_task_from_endpoint')
+                created_jira.append(create_jira(fields,row))
+
+                # the below line of code will update the data frame for column jira
+                # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
+            else:
+                #TODO: summary column present but no data
+                print('summary not present')
+        except:
+            print('inside except of create_jira_task_from_endpoint')
+            if pd.notna(row['summary']):   
+                print('inside except if of create_jira_task_from_endpoint')         
+                created_jira.append(create_jira(fields,row))
+
+                # the below line of code will update the data frame for column jira
+                # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
+            else:
+                #TODO: summary column present but no data
+                print('summary not present')
+    print('in create_jira_task_from_endpoint', created_jira)
     return created_jira
 
 store = {}
 
 def get_valid_functions():
-    return ['createJiraTaskFromLocalCSVFile']
+    return ['create_jira_task_from_local_CSV_file','create_jira_task_from_endpoint']
 
 def get_session_history(session_id: str) -> BaseChatMessageHistory:
     if session_id not in store:
@@ -77,28 +126,27 @@ def connectToLLama():
                 You are a highly capable AI assistant tasked with understanding user queries and responding with the appropriate function from the list provided below. Your response must adhere to the following constraints:
 
                 Functions:
-                    - createJiraTaskFromLocalCSVFile(pathToCSV)
+                    - create_jira_task_from_endpoint(endpoint)
 
                 Constraints:
                     - Only use the functions listed above. Do not generate or suggest any other functions.
                     - Ensure that the function you generate directly addresses the query made by the user.
                     - If the query does not correspond to any function you are allowed to use, respond with an empty string ''.
                     - Include only the function name and arguments in your response, without any additional text.
+                    - If there is no path mentioned in the query then respond with empty string ''.
+                    - If the question is related to any task we did in the current session then you should give relevant answer.
+                    - When the query is asking to create jira tickets then it should also have a https URL otherwise respond with empty string ''.
 
                 Examples:
-                    - Query: "Can you read the csv in the path '../csvFiles/jira_task_list.csv' and create jira for each items" 
-                    Response: "createJiraTaskFromLocalCSVFile('../csvFiles/jira_task_list.csv')"
-                    - Query: "read the csv in the path '../csvFiles/jira_task_list.csv' and create jira for each items" 
-                    Response: "createJiraTaskFromLocalCSVFile('../csvFiles/jira_task_list.csv')"
-                    - Query: "get the data from the csv in the path '../csvFiles/jira_task_list.csv' and create jira for each items" 
-                    Response: "createJiraTaskFromLocalCSVFile('../csvFiles/jira_task_list.csv')"
-                    - Query: "from the csv in the path '../csvFiles/jira_task_list.csv' get the data and create jira for each items" 
-                    Response: "createJiraTaskFromLocalCSVFile('../csvFiles/jira_task_list.csv')"
-                    - Query: "csv read jira '../csvFiles/jira_task_list.csv'"
+                    - Query: "Can you read the csv from https://docs.google.com/spreadsheets/d/asdfasdfBXBvROxzebG9DwiDe7Ran5qasdfasdf/edit?gid=0#gid=0 and create jira for each items" 
+                    Response: "create_jira_task_from_endpoint('https://docs.google.com/spreadsheets/d/asdfasdfCBXBvROxzebG9DwiDe7Ran5qasdfsdf/edit?gid=0#gid=0')"
+                    - Query: "read the csv from https://docs.google.com/spreadsheets/d/1asdfasdfCBXBvROxzebG9DwiDe7Ranasdfasdf/edit?gid=0#gid=0 and create jira for each items" 
+                    Response: "create_jira_task_from_endpoint('https://docs.google.com/spreadsheets/d/sadfasdf3ECBXBvROxzebG9DwiDe7Ran5quasdfasdf/edit?gid=0#gid=0')"
+                    - Query: "csv read jira https://docs.google.com/spreadsheets/d/asdfasdf3ECBXBvROxzebG9DwiDe7Ran5asdfasdf/edit?gid=0#gid=0"
                     Response: ''
-                    - Query: "csv read '../csvFiles/jira_task_list.csv'"
+                    - Query: "csv read https://docs.google.com/spreadsheets/d/asdfasdft3ECBXBvROxzebGasdfasdf/edit?gid=0#gid=0"
                     Response: ''
-                    - Query: "jira tickets '../csvFiles/jira_task_list.csv'"
+                    - Query: "jira tickets https://docs.google.com/spreadsheets/d/asdfasdf3ECBXBvROxzebG9DwiDe70asdf/edit?gid=0#gid=0"
                     Response: ''
 
                 Be mindful that only the functions defined above are valid, and the response must match the function signature exactly.
@@ -134,27 +182,34 @@ async def websocket_endpoint(websocket: WebSocket):
                 {"messages":[HumanMessage(content=data)]},
                 config={"configurable": {"session_id": session_id}},
             )
-        # add logic to verify if the function returned by LLM is expected
         res = response.content.strip()
+        
         is_valid_function = validate_if_function_returned_is_valid(res)
     
         if len(res)>2 and is_valid_function:
-            print(f"is valid{res}")
-            # try:
-            #     created_jiras = eval(res)
-            #     if len(created_jiras)>1:
-            #         system_message_for_llm = 'We have created the following jira'
-            #         for jiras in created_jiras:
-            #             system_message_for_llm = system_message_for_llm + f'\n-${jiras['title']}: https://amagiengg.atlassian.net/browse/${jiras['key']}'
-            #         updateSessionHistory(session_id, system_message_for_llm)
+            try:
+                created_jiras = eval(res)
+                print('created_jira', created_jiras)
+                if len(created_jiras)>=1:
+                    system_message_for_llm = 'We have created following jira'
+                    for jira in created_jiras:
+                        system_message_for_llm = system_message_for_llm + f'\n-{jira['title']}: https://amagiengg.atlassian.net/browse/{jira['key']}'
+                    updateSessionHistory(session_id, system_message_for_llm)
+                    await websocket.send_json({
+                        "time":time, "content":system_message_for_llm
+                    })
 
-            # except Exception as e:
-            #     print(f"Error: {e}")
-
-            # await websocket.send_json({
-            #     "time":time, "content":res
-            # })
+            except Exception as e:
+                print(f"Error: {e}")
+                await websocket.send_json({
+                    "time":time, "content":f'Failed to execute the function:{res}\nPlease contact the admin'
+                })
+                
         else:
             print("Unexpected response:", res)
+            # TODO: update error message with the supported features
+            await websocket.send_json({
+                "time":time, "content":f'Unexpected response from LLM:{res}\nPlease double check your query'
+            })
         
         

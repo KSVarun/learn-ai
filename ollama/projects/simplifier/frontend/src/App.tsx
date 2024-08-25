@@ -18,7 +18,7 @@ function App() {
   useEffect(() => {
     const ws = new WebSocket("ws://127.0.0.1:8000/ws");
     ws.onmessage = function (event) {
-      // responseDate will be in format {time:string, content:string}
+      // responseDate will be in format { content:string}
       const responseData: { time: string; content: string } = JSON.parse(
         event.data
       );
@@ -26,7 +26,7 @@ function App() {
       setData((data) => {
         const updatedMessages = data.messages ?? {};
         updatedMessages[responseData.time] =
-          updatedMessages[responseData.time] + responseData.content;
+          updatedMessages[responseData.time] ?? "" + responseData.content;
         console.log(updatedMessages);
         return {
           ...data,
