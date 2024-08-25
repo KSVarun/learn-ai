@@ -101,7 +101,10 @@ function App() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (data.currentMessage) {
+              if (
+                data.currentMessage &&
+                data.currentMessage.message.trim().length > 0
+              ) {
                 sendMessage(data.currentMessage.message);
                 setData((data) => ({
                   ...data,
@@ -116,13 +119,36 @@ function App() {
               rows={1}
               value={data.currentMessage ? data.currentMessage.message : ""}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (e.key === "Enter" && e.shiftKey) {
                   textAreaIncrease();
+                  return;
+                }
+                if (
+                  e.key === "Enter" &&
+                  data.currentMessage &&
+                  data.currentMessage.message.trim().length > 0
+                ) {
+                  sendMessage(data.currentMessage.message);
+                  setData((data) => ({
+                    ...data,
+                    messages: [...data.messages, data.currentMessage!],
+                    currentMessage: null,
+                  }));
+                  textAreaReset();
                 }
               }}
               onChange={(e) => {
-                if (e.target.value === "") {
+                if (e.target.value.trim() === "") {
                   textAreaReset();
+                  setData((data) => ({
+                    ...data,
+                    currentMessage: {
+                      message: e.target.value.trim(),
+                      source: "user",
+                      timeStamp: new Date().toISOString(),
+                    },
+                  }));
+                  return;
                 }
                 setData((data) => ({
                   ...data,

@@ -45,12 +45,24 @@ app = FastAPI()
 #     print(f"Unable to login to jira, Error: {e}")
 
 def create_jira(fields, row):
-    # jira_issue_response will contain {'id': '2784859', 'key': 'AN30-6067', 'self': 'link to the json response'}
-    jira_issue_response=jira.issue_create(fields)
-    updated_jira_issue_response=jira_issue_response
-    updated_jira_issue_response['title']=row['summary']
-    print('in create_jira', updated_jira_issue_response)
-    return updated_jira_issue_response
+    try:
+        # jira_issue_response will contain {'id': '2784859', 'key': 'AN30-6067', 'self': 'link to the json response'}
+        jira_issue_response=jira.issue_create(fields)
+        updated_jira_issue_response=jira_issue_response
+        updated_jira_issue_response['title']=row['summary']
+        print('in create_jira', updated_jira_issue_response)
+        return {
+            "error": False,
+            "message": '',
+            "content": updated_jira_issue_response
+        }
+    except Exception as e:
+        print(f'Failed to create the jira {row['summary']} - {e}')
+        return {
+            "error": True,
+            "message": f'Failed to create the jira for {row['summary']} - {e}\nWe will stop trying to create further jira as chance of failure is high,\nPlease check with admin for more details',
+            "content": ''
+        }
 
 def process_google_sheet_endpoint(endpoint: str):
     print(endpoint)
@@ -62,18 +74,35 @@ def process_google_sheet_endpoint(endpoint: str):
         sheet_id = match.group(1)
         gid = match.group(2)
         if gid:
-            return f'https://docs.google.com/spreadsheets/d/{sheet_id}/export?gid={gid}&format=csv'
-        return f'https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv'
+            return {
+                "error": False,
+                "message": '',
+                "content": f'https://docs.google.com/spreadsheets/d/{sheet_id}/export?gid={gid}&format=csv'
+            }
+        return {
+                "error": False,
+                "message": '',
+                "content": f'https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv'
+            }
         
     else:
         print("URL format is not recognized.")
+        return {
+            "error": True,
+            "message": f'URL format is not recognized. - {endpoint}',
+            "content": ''
+        }
 
 def create_jira_task_from_endpoint(endpoint:str):
     processed_end_point = process_google_sheet_endpoint(endpoint)
     created_jira = []
+    
+    if processed_end_point['error']:
+        return processed_end_point
+    
     print('in create_jira-task_from_endpoint, processed_end_point', processed_end_point)
     try:
-        response = requests.get(processed_end_point)
+        response = requests.get(processed_end_point['content'])
     except Exception as e:
         print(f'Failed to access the endpoint - {e}')
         return {
@@ -103,7 +132,11 @@ def create_jira_task_from_endpoint(endpoint:str):
             print('inside try of create_jira_task_from_endpoint')
             if pd.notna(row['summary']) and pd.isna(row['jira']):
                 print('inside try if of create_jira_task_from_endpoint')
-                # created_jira.append(create_jira(fields,row))
+                # jira_response = create_jira(fields,row)
+                # if jira_response['error']:
+                #     return jira_response
+                    
+                # created_jira.append(jira_response['content'])
 
                 # the below line of code will update the data frame for column jira
                 # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
@@ -115,7 +148,11 @@ def create_jira_task_from_endpoint(endpoint:str):
             print('inside except of create_jira_task_from_endpoint')
             if pd.notna(row['summary']):   
                 print('inside except if of create_jira_task_from_endpoint')         
-                # created_jira.append(create_jira(fields,row))
+                # jira_response = create_jira(fields,row)
+                # if jira_response['error']:
+                #     return jira_response
+                    
+                # created_jira.append(jira_response['content'])
 
                 # the below line of code will update the data frame for column jira
                 # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
