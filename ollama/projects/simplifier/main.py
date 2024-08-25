@@ -20,7 +20,7 @@ import re
 
 load_dotenv()
 
-model="llama3.1:8b-instruct-q8_0"
+model="llama3.1"
 llm = ChatOllama(model=model, temperature=0)
 
 app = FastAPI()
@@ -35,14 +35,14 @@ app = FastAPI()
 
 #TODO: should login to jira on application start, if session ends should relogin
 
-try:
-    jira = Jira(
-    url=os.getenv("url"),
-    username=os.getenv("username"),
-    password=os.getenv("password"),
-    cloud=True)
-except Exception as e:
-    print(f"Unable to login to jira, Error: {e}")
+# try:
+#     jira = Jira(
+#     url=os.getenv("url"),
+#     username=os.getenv("username"),
+#     password=os.getenv("password"),
+#     cloud=True)
+# except Exception as e:
+#     print(f"Unable to login to jira, Error: {e}")
 
 def create_jira(fields, row):
     # jira_issue_response will contain {'id': '2784859', 'key': 'AN30-6067', 'self': 'link to the json response'}
@@ -54,7 +54,7 @@ def create_jira(fields, row):
 
 def process_google_sheet_endpoint(endpoint: str):
     print(endpoint)
-    #Can you read the csv from https://docs.google.com/spreadsheets/d/1mPO6-Ta-3t3ECROxzebG9DwiDe7Ran5quHeuVa0/edit?gid=0#gid=0 and create jira for each items
+    #Can you read the csv from https://docs.google.com/spreadsheets/d/1mPO6-Ta-3t3ECROxzebG9DwiDe7Ran5/edit?gid=0#gid=0 and create jira for each items
     google_sheet_endpoint_pattern = r"https://docs.google.com/spreadsheets/d/([a-zA-Z0-9-_]+).*?gid=([0-9]+)"
     match = re.search(google_sheet_endpoint_pattern, endpoint)
 
@@ -70,13 +70,30 @@ def process_google_sheet_endpoint(endpoint: str):
 
 def create_jira_task_from_endpoint(endpoint:str):
     processed_end_point = process_google_sheet_endpoint(endpoint)
+    created_jira = []
     print('in create_jira-task_from_endpoint, processed_end_point', processed_end_point)
-    response = requests.get(processed_end_point)
+    try:
+        response = requests.get(processed_end_point)
+    except Exception as e:
+        print(f'Failed to access the endpoint - {e}')
+        return {
+            "error": True,
+            "message": f'Failed to access the endpoint - {e}',
+            "content": ''
+        }
     csv_data = StringIO(response.content.decode('utf-8'))
     df = pd.read_csv(csv_data)
     
     print('in create_jira-task_from_endpoint', df)
-    created_jira = []
+    
+    if df.empty:
+        print(f'Empty data frame\nPlease check if the URL is correct and it has data in supported format. Received URL: {endpoint}')
+        return {
+            "error": True,
+            "message": f'Empty data frame\nPlease check if the URL is correct and it has data in supported format. Received URL: {endpoint}',
+            "content": ''
+        }
+    
 
     #TODO: add validation to check if summary column is present or not, if not present update the ws message
 
@@ -86,18 +103,19 @@ def create_jira_task_from_endpoint(endpoint:str):
             print('inside try of create_jira_task_from_endpoint')
             if pd.notna(row['summary']) and pd.isna(row['jira']):
                 print('inside try if of create_jira_task_from_endpoint')
-                created_jira.append(create_jira(fields,row))
+                # created_jira.append(create_jira(fields,row))
 
                 # the below line of code will update the data frame for column jira
                 # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
             else:
                 #TODO: summary column present but no data
                 print('summary not present')
+                
         except:
             print('inside except of create_jira_task_from_endpoint')
             if pd.notna(row['summary']):   
                 print('inside except if of create_jira_task_from_endpoint')         
-                created_jira.append(create_jira(fields,row))
+                # created_jira.append(create_jira(fields,row))
 
                 # the below line of code will update the data frame for column jira
                 # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
@@ -105,7 +123,11 @@ def create_jira_task_from_endpoint(endpoint:str):
                 #TODO: summary column present but no data
                 print('summary not present')
     print('in create_jira_task_from_endpoint', created_jira)
-    return created_jira
+    return {
+            "error": False,
+            "message": '',
+            "content": created_jira
+        }
 
 store = {}
 
@@ -136,17 +158,18 @@ def connectToLLama():
                     - If there is no path mentioned in the query then respond with empty string ''.
                     - If the question is related to any task we did in the current session then you should give relevant answer.
                     - When the query is asking to create jira tickets then it should also have a https URL otherwise respond with empty string ''.
+                    - While responding replace [URL] with the actual URL provided by the user
 
                 Examples:
-                    - Query: "Can you read the csv from https://docs.google.com/spreadsheets/d/asdfasdfBXBvROxzebG9DwiDe7Ran5qasdfasdf/edit?gid=0#gid=0 and create jira for each items" 
-                    Response: "create_jira_task_from_endpoint('https://docs.google.com/spreadsheets/d/asdfasdfCBXBvROxzebG9DwiDe7Ran5qasdfsdf/edit?gid=0#gid=0')"
-                    - Query: "read the csv from https://docs.google.com/spreadsheets/d/1asdfasdfCBXBvROxzebG9DwiDe7Ranasdfasdf/edit?gid=0#gid=0 and create jira for each items" 
-                    Response: "create_jira_task_from_endpoint('https://docs.google.com/spreadsheets/d/sadfasdf3ECBXBvROxzebG9DwiDe7Ran5quasdfasdf/edit?gid=0#gid=0')"
-                    - Query: "csv read jira https://docs.google.com/spreadsheets/d/asdfasdf3ECBXBvROxzebG9DwiDe7Ran5asdfasdf/edit?gid=0#gid=0"
+                    - Query: "Can you read the csv from [URL] and create jira for each items" 
+                    Response: "create_jira_task_from_endpoint('[URL]')"
+                    - Query: "read the csv in the path [URL] and create jira for each items" 
+                    Response: "create_jira_task_from_endpoint('[URL]')"
+                    - Query: "csv read jira [URL]"
                     Response: ''
-                    - Query: "csv read https://docs.google.com/spreadsheets/d/asdfasdft3ECBXBvROxzebGasdfasdf/edit?gid=0#gid=0"
+                    - Query: "csv read [URL]"
                     Response: ''
-                    - Query: "jira tickets https://docs.google.com/spreadsheets/d/asdfasdf3ECBXBvROxzebG9DwiDe70asdf/edit?gid=0#gid=0"
+                    - Query: "jira tickets [URL]"
                     Response: ''
 
                 Be mindful that only the functions defined above are valid, and the response must match the function signature exactly.
@@ -183,16 +206,22 @@ async def websocket_endpoint(websocket: WebSocket):
                 config={"configurable": {"session_id": session_id}},
             )
         res = response.content.strip()
-        
+        print(f'Response from LLM - {res}')
         is_valid_function = validate_if_function_returned_is_valid(res)
     
         if len(res)>2 and is_valid_function:
             try:
-                created_jiras = eval(res)
-                print('created_jira', created_jiras)
-                if len(created_jiras)>=1:
+                response_from_function_execution = eval(res)
+                if response_from_function_execution['error']:
+                    await websocket.send_json({
+                        "time":time, "content":response_from_function_execution['message']
+                    })
+                    return
+                
+                print('created_jira', response_from_function_execution['content'])
+                if len(response_from_function_execution['content'])>=1:
                     system_message_for_llm = 'We have created following jira'
-                    for jira in created_jiras:
+                    for jira in response_from_function_execution['content']:
                         system_message_for_llm = system_message_for_llm + f'\n-{jira['title']}: https://amagiengg.atlassian.net/browse/{jira['key']}'
                     updateSessionHistory(session_id, system_message_for_llm)
                     await websocket.send_json({
@@ -202,14 +231,14 @@ async def websocket_endpoint(websocket: WebSocket):
             except Exception as e:
                 print(f"Error: {e}")
                 await websocket.send_json({
-                    "time":time, "content":f'Failed to execute the function:{res}\nPlease contact the admin'
+                    "time":time, "content":f'Failed to execute the function: {res}\nPlease contact the admin'
                 })
                 
         else:
             print("Unexpected response:", res)
             # TODO: update error message with the supported features
             await websocket.send_json({
-                "time":time, "content":f'Unexpected response from LLM:{res}\nPlease double check your query'
+                "time":time, "content":f'Unexpected response from LLM: {res}\nPlease double check your query'
             })
         
         
