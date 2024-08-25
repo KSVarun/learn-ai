@@ -13,6 +13,8 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.messages import HumanMessage
 import datetime
+from langchain_core.messages import SystemMessage
+
 
 load_dotenv()
 
@@ -42,17 +44,24 @@ app = FastAPI()
 
 def createJiraTaskFromLocalCSVFile(csvPath:str):
     df = pd.read_csv(csvPath)
+    created_jira = []
     for index, row in df.iterrows():
         if pd.notna(row['summary']) & pd.isna(row['jira']):
             fields = {'project':{'key':'AN30'},'issuetype': {'name': 'Task'},'summary': row['summary'], 'description':row['description'], 'assignee':{'id':row['assignee']}}
 
-            # res will contain {'id': '2784859', 'key': 'AN30-6067', 'self': 'link to the json response'}
-            # res=jira.issue_create(fields)
-
-            # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{res['key']}'
+            # jira_issue_response will contain {'id': '2784859', 'key': 'AN30-6067', 'self': 'link to the json response'}
+            # jira_issue_response=jira.issue_create(fields)
+            # updated_jira_issue_response=jira_issue_response
+            # updated_jira_issue_response['title']=row['summary']
+            # created_jira.append(updated_jira_issue_response)
+            # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
     df.to_csv(csvPath, index=False)
+    return created_jira
 
 store = {}
+
+def get_valid_functions():
+    return []
 
 def get_session_history(session_id: str) -> BaseChatMessageHistory:
     if session_id not in store:
@@ -102,6 +111,12 @@ def connectToLLama():
     with_message_history = RunnableWithMessageHistory(chain, get_session_history, input_messages_key="messages")
     return with_message_history
 
+def updateSessionHistory(session_id: str, message:str):
+    if session_id in store:
+        get_session_history(session_id).add_message(SystemMessage(message))
+
+updateSessionHistory('new')
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -109,10 +124,25 @@ async def websocket_endpoint(websocket: WebSocket):
     while True:
         data = await websocket.receive_text()
         time = datetime.datetime.now().isoformat()
+        session_id="001"
         response = with_message_history.invoke(
                 {"messages":[HumanMessage(content=data)]},
-                config={"configurable": {"session_id": "new"}},
+                config={"configurable": {"session_id": session_id}},
             )
+        # add logic to verify if the function returned by LLM is expected
+        if(len(res)>2):
+            try:
+                created_jiras = eval(res)
+                if len(created_jiras)>1:
+                    system_message_for_llm = 'We have created the following jira'
+                    for jiras in created_jiras:
+                        system_message_for_llm = system_message_for_llm + f'\n-${jiras['title']}: https://amagiengg.atlassian.net/browse/${jiras['key']}'
+                    updateSessionHistory(session_id, system_message_for_llm)
+
+            except Exception as e:
+                print(f"Error: {e}")
+        else:
+            print("Unexpected response:", res)
         res = response.content.strip()
         await websocket.send_json({
                 "time":time, "content":res
