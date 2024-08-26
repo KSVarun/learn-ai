@@ -271,11 +271,18 @@ async def websocket_endpoint(websocket: WebSocket):
                     "time":time, "content":f'Failed to execute the function: {res}\nPlease contact the admin'
                 })
                 
-        else:
+        elif len(res)<=2:
             print("Unexpected response:", res)
             # TODO: update error message with the supported features
             await websocket.send_json({
                 "time":time, "content":f'Unexpected response from LLM: {res}\nPlease double check your query'
+            })
+                
+        else:
+            print(res)
+            # TODO: update error message with the supported features
+            await websocket.send_json({
+                "time":time, "content":f'{res}'
             })
         
         

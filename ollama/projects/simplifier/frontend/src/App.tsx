@@ -62,12 +62,24 @@ function App() {
     };
   }, []);
 
-  function textAreaIncrease() {
+  function textAreaIncreaseOnEnterPress() {
     if (!textareaRef.current) {
       return;
     }
     textareaRef.current.style.height =
       5 + textareaRef.current.scrollHeight + "px";
+  }
+
+  function textAreaIncreaseOnLargeContentType() {
+    if (!textareaRef.current) {
+      return;
+    }
+    // const loop = Math.ceil(textareaRef.current.scrollHeight / 38);
+    // if (loop > 1) {
+    //   for (let i = 0; i < loop; i++) {
+    //     textAreaIncreaseOnEnterPress();
+    //   }
+    // }
   }
 
   function textAreaReset() {
@@ -120,7 +132,7 @@ function App() {
               value={data.currentMessage ? data.currentMessage.message : ""}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && e.shiftKey) {
-                  textAreaIncrease();
+                  textAreaIncreaseOnEnterPress();
                   return;
                 }
                 if (
@@ -135,7 +147,9 @@ function App() {
                     currentMessage: null,
                   }));
                   textAreaReset();
+                  return;
                 }
+                textAreaIncreaseOnLargeContentType();
               }}
               onChange={(e) => {
                 if (e.target.value.trim() === "") {
