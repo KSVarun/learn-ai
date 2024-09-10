@@ -33,16 +33,16 @@ app = FastAPI()
 # async def get():
 #     return HTMLResponse(html)
 
-#TODO: should login to jira on application start, if session ends should relogin
+#TODO: should login to jira on application start, if session ends should re-login
 
-# try:
-#     jira = Jira(
-#     url=os.getenv("url"),
-#     username=os.getenv("username"),
-#     password=os.getenv("password"),
-#     cloud=True)
-# except Exception as e:
-#     print(f"Unable to login to jira, Error: {e}")
+try:
+    jira = Jira(
+    url=os.getenv("url"),
+    username=os.getenv("username"),
+    password=os.getenv("password"),
+    cloud=True)
+except Exception as e:
+    print(f"Unable to login to jira, Error: {e}")
 
 def create_jira(fields, row):
     try:
@@ -125,6 +125,7 @@ def create_jira_task_from_endpoint(endpoint:str):
     
 
     #TODO: add validation to check if summary column is present or not, if not present update the ws message
+    
 
     for index, row in df.iterrows():
         fields = {'project':{'key':'AN30'},'issuetype': {'name': 'Task'},'summary': row['summary'], 'description':row['description'], 'assignee':{'id':row['assignee']}}
@@ -132,33 +133,29 @@ def create_jira_task_from_endpoint(endpoint:str):
             print('inside try of create_jira_task_from_endpoint')
             if pd.notna(row['summary']) and pd.isna(row['jira']):
                 print('inside try if of create_jira_task_from_endpoint')
-                # jira_response = create_jira(fields,row)
-                # if jira_response['error']:
-                #     return jira_response
+                jira_response = create_jira(fields,row)
+                print('inside try if of create_jira_task_from_endpoint - jira_response', jira_response)
+                if jira_response['error']:
+                    return jira_response
                     
-                # created_jira.append(jira_response['content'])
+                created_jira.append(jira_response['content'])
 
                 # the below line of code will update the data frame for column jira
-                # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
+                df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_response['key']}'
+            elif pd.notna(row['jira']):
+                print(f'inside try elif of create_jira_task_from_endpoint, skipping row, jira is present. ${pd(row['jira'])}')
             else:
                 #TODO: summary column present but no data
                 print('summary not present')
                 
-        except:
+        except Exception as e:
             print('inside except of create_jira_task_from_endpoint')
-            if pd.notna(row['summary']):   
-                print('inside except if of create_jira_task_from_endpoint')         
-                # jira_response = create_jira(fields,row)
-                # if jira_response['error']:
-                #     return jira_response
-                    
-                # created_jira.append(jira_response['content'])
-
-                # the below line of code will update the data frame for column jira
-                # df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_issue_response['key']}'
-            else:
-                #TODO: summary column present but no data
-                print('summary not present')
+            return {
+                "error": True,
+                "message": e,
+                "content": ''
+            }
+            
     print('in create_jira_task_from_endpoint', created_jira)
     return {
             "error": False,

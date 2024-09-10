@@ -8,6 +8,8 @@ interface IMessage {
   timeStamp: string; //timestamp in ISO string format
 }
 
+const MAX_RETRIES = 5;
+
 const WS_ENDPOINT = "ws://127.0.0.1:8000/ws";
 
 function App() {
@@ -27,36 +29,58 @@ function App() {
   }
 
   useEffect(() => {
-    const ws = new WebSocket(WS_ENDPOINT);
-    ws.onmessage = function (event) {
-      // responseDate will be in format { content:string, time:string }
-      const responseData: { time: string; content: string } = JSON.parse(
-        event.data
-      );
+    let retryCount = 0;
+    let ws: WebSocket | null = null;
+    function triggerWSConnection() {
+      ws = new WebSocket(WS_ENDPOINT);
+      ws.onmessage = function (event) {
+        // responseDate will be in format { content:string, time:string }
+        const responseData: { time: string; content: string } = JSON.parse(
+          event.data
+        );
 
-      setData((data) => {
-        const responseMessage: IMessage = {
-          source: "backend",
-          message: responseData.content,
-          timeStamp: responseData.time,
-        };
-        return {
-          ...data,
-          messages: [...data.messages, responseMessage],
-        };
-      });
-    };
+        setData((data) => {
+          const responseMessage: IMessage = {
+            source: "backend",
+            message: responseData.content,
+            timeStamp: responseData.time,
+          };
+          return {
+            ...data,
+            messages: [...data.messages, responseMessage],
+          };
+        });
+      };
 
-    ws.onopen = () => {
-      console.log("connected");
-      setData((data) => ({ ...data, ws: ws }));
-    };
+      ws.onopen = () => {
+        console.log("connected");
+        setData((data) => ({ ...data, ws: ws }));
+      };
 
-    ws.onclose = () => {
-      console.log("closed");
-    };
+      ws.onerror = () => {
+        console.log(
+          "error with connection, retrying connection, retry count",
+          retryCount
+        );
+        if (retryCount < MAX_RETRIES) {
+          triggerWSConnection();
+          retryCount++;
+        }
+      };
 
+      ws.onclose = () => {
+        console.log("closed");
+        console.log("retrying connection, retry count", retryCount);
+        if (retryCount < MAX_RETRIES) {
+          triggerWSConnection();
+        }
+      };
+    }
+    triggerWSConnection();
     return () => {
+      if (!ws) {
+        return;
+      }
       console.log("closing");
       ws.close();
     };
