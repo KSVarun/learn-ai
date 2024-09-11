@@ -133,7 +133,7 @@ function App() {
             );
           })}
         </section>
-        <section>
+        <footer>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -200,7 +200,7 @@ function App() {
             />
             <button type="submit">Send</button>
           </form>
-        </section>
+        </footer>
       </div>
     </>
   );

@@ -131,6 +131,7 @@ def create_jira_task_from_endpoint(endpoint:str):
         fields = {'project':{'key':'AN30'},'issuetype': {'name': 'Task'},'summary': row['summary'], 'description':row['description'], 'assignee':{'id':row['assignee']}}
         try:
             print('inside try of create_jira_task_from_endpoint')
+            
             if pd.notna(row['summary']) and pd.isna(row['jira']):
                 print('inside try if of create_jira_task_from_endpoint')
                 jira_response = create_jira(fields,row)
@@ -141,15 +142,19 @@ def create_jira_task_from_endpoint(endpoint:str):
                 created_jira.append(jira_response['content'])
 
                 # the below line of code will update the data frame for column jira
-                df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_response['key']}'
-            elif pd.notna(row['jira']):
-                print(f'inside try elif of create_jira_task_from_endpoint, skipping row, jira is present. ${pd(row['jira'])}')
+                df.at[index, 'jira'] = f'https://amagiengg.atlassian.net/browse/{jira_response['content']['key']}'
+            elif pd.notna(row['summary']) and pd.notna(row['jira']):
+                print(f'inside try elif of create_jira_task_from_endpoint, skipping row, jira is present. {row['jira']}')
             else:
                 #TODO: summary column present but no data
                 print('summary not present')
                 
         except Exception as e:
             print('inside except of create_jira_task_from_endpoint')
+            print(f"Error encountered: {e}")
+            print(f"Type of error: {type(e)}")
+            print(f"Problematic data: {row}")
+
             return {
                 "error": True,
                 "message": e,
@@ -260,6 +265,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     updateSessionHistory(session_id, system_message_for_llm)
                     await websocket.send_json({
                         "time":time, "content":system_message_for_llm
+                    })
+                elif len(response_from_function_execution['content'])==0:
+                    system_message_for_llm = 'All the tasks have jira colum have some data filled, hence not creating any new jira'
+                    updateSessionHistory(session_id, system_message_for_llm)
+                    await websocket.send_json({
+                        "time":time, "content":system_message_for_llm
+                    })
+                else:
+                    await websocket.send_json({
+                        "time":time, "content":'Unexpected error encountered'
                     })
 
             except Exception as e:
